@@ -1608,3 +1608,293 @@ namespace FungleAPI.Translation
     }
 }
 # Configurations
+// Classes
+using FungleAPI.PluginLoading;
+using FungleAPI.Translation;
+using FungleAPI.Utilities;
+using FungleAPI.Utilities.Prefabs;
+using HarmonyLib;
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using UnityEngine;
+
+namespace FungleAPI.Configuration.Attributes
+{
+    [HarmonyPatch(typeof(StringOption))]
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class ModdedEnumOption : ModdedOption
+    {
+        public ModdedEnumOption(string configName, string defaultValue)
+            : base(configName)
+        {
+            Data = ScriptableObject.CreateInstance<StringGameSetting>().DontUnload();
+            StringGameSetting stringGameSetting = (StringGameSetting)Data;
+            stringGameSetting.Title = ConfigName.StringName;
+            stringGameSetting.Type = OptionTypes.String;
+            Values = defaultValue.Split("|");
+            List<StringNames> stringNames = new List<StringNames>();
+            foreach (string str in Values)
+            {
+                stringNames.Add(new Translator(str).StringName);
+            }
+            stringGameSetting.Values = stringNames.ToArray();
+        }
+        public override void Initialize(PropertyInfo property)
+        {
+            base.Initialize(property);
+            if (property.PropertyType == typeof(int) || property.PropertyType == typeof(string))
+            {
+                ModPlugin plugin = ModPluginManager.GetModPlugin(property.DeclaringType.Assembly);
+                int value = property.PropertyType == typeof(int) ? (int)property.GetValue(null) : Values.GetIndex((string)property.GetValue(null));
+                localValue = plugin.BasePlugin.Config.Bind(plugin.ModName + " - " + property.DeclaringType.FullName, ConfigName.Default, value.ToString());
+                onlineValue = value.ToString();
+                FullConfigName = plugin.ModName + property.DeclaringType.FullName + property.Name + value.GetType().FullName;
+                Data.SafeCast<StringGameSetting>().Index = int.Parse(localValue.Value);
+            }
+        }
+        public override OptionBehaviour CreateOption(Transform transform)
+        {
+            StringOption stringOption = UnityEngine.Object.Instantiate(PrefabUtils.Prefab<StringOption>(), transform);
+            StringGameSetting stringGameSetting = Data as StringGameSetting;
+            stringOption.SetUpFromData(Data, 20);
+            stringOption.OnValueChanged = new Action<OptionBehaviour>(delegate
+            {
+                stringGameSetting.Index = stringOption.Value;
+            });
+            stringOption.Title = stringGameSetting.Title;
+            stringOption.Values = stringGameSetting.Values;
+            stringOption.Value = stringGameSetting.Index;
+            FixOption(stringOption);
+            return stringOption;
+        }
+        public override object GetReturnedValue()
+        {
+            Type type = Property.PropertyType;
+            if (Property.PropertyType == typeof(int) || Property.PropertyType == typeof(string))
+            {
+                return Property.PropertyType == typeof(int) ? int.Parse(GetValue()) : Values[int.Parse(GetValue())];
+            }
+            return GetValue();
+        }
+        public string[] Values;
+        [HarmonyPatch("Initialize")]
+        [HarmonyPrefix]
+        public static bool InitializePrefix(StringOption __instance)
+        {
+            if (__instance.name == "ModdedOption")
+            {
+                __instance.TitleText.text = DestroyableSingleton<TranslationController>.Instance.GetString(__instance.Title);
+                __instance.ValueText.text = DestroyableSingleton<TranslationController>.Instance.GetString(__instance.Values[__instance.Value]);
+                __instance.AdjustButtonsActiveState();
+                return false;
+            }
+            return true;
+        }
+        [HarmonyPatch("UpdateValue")]
+        [HarmonyPrefix]
+        public static bool UpdateValuePrefix(StringOption __instance)
+        {
+            return __instance.name != "ModdedOption";
+        }
+    }
+}
+using AmongUs.GameOptions;
+using FungleAPI.Utilities;
+using System;
+using System.Reflection;
+using UnityEngine;
+using HarmonyLib;
+using FungleAPI.Utilities.Prefabs;
+using FungleAPI.PluginLoading;
+
+namespace FungleAPI.Configuration.Attributes
+{
+    [HarmonyPatch(typeof(NumberOption))]
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class ModdedNumberOption : ModdedOption
+    {
+        public ModdedNumberOption(string configName, float minValue, float maxValue, float increment = 1, string formatString = null, bool zeroIsInfinity = false, NumberSuffixes suffixType = NumberSuffixes.Seconds)
+            : base(configName)
+        {
+            Data = ScriptableObject.CreateInstance<FloatGameSetting>().DontUnload();
+            FloatGameSetting floatGameSetting = (FloatGameSetting)Data;
+            floatGameSetting.Type = OptionTypes.Float;
+            floatGameSetting.Title = ConfigName.StringName;
+            floatGameSetting.Increment = increment;
+            floatGameSetting.ValidRange = new FloatRange(minValue, maxValue);
+            floatGameSetting.FormatString = formatString;
+            floatGameSetting.ZeroIsInfinity = zeroIsInfinity;
+            floatGameSetting.SuffixType = suffixType;
+            floatGameSetting.OptionName = FloatOptionNames.Invalid;
+        }
+        public override void Initialize(PropertyInfo property)
+        {
+            base.Initialize(property);
+            if (property.PropertyType == typeof(float) || property.PropertyType == typeof(int))
+            {
+                ModPlugin plugin = ModPluginManager.GetModPlugin(property.DeclaringType.Assembly);
+                float value = float.Parse(property.GetValue(null).ToString());
+                localValue = plugin.BasePlugin.Config.Bind(plugin.ModName + " - " + property.DeclaringType.FullName + " - Option", ConfigName.Default, value.ToString());
+                onlineValue = value.ToString();
+                FullConfigName = plugin.ModName + property.DeclaringType.FullName + property.Name + value.GetType().FullName;
+                Data.SafeCast<FloatGameSetting>().Value = float.Parse(localValue.Value);
+            }
+        }
+        public override object GetReturnedValue()
+        {
+            Type type = Property.PropertyType;
+            if (type == typeof(int))
+            {
+                return int.Parse(GetValue());
+            }
+            else if (type == typeof(float))
+            {
+                return float.Parse(GetValue());
+            }
+            return GetValue();
+        }
+        public override OptionBehaviour CreateOption(Transform transform)
+        {
+            NumberOption numberOption = UnityEngine.Object.Instantiate(PrefabUtils.Prefab<NumberOption>(), Vector3.zero, Quaternion.identity, transform);
+            FloatGameSetting floatGameSetting = (FloatGameSetting)Data;
+            numberOption.SetUpFromData(Data, 20);
+            numberOption.OnValueChanged = new Action<OptionBehaviour>(delegate
+            {
+                SetValue(numberOption.Value);
+                floatGameSetting.Value = numberOption.Value;
+            });
+            numberOption.Title = floatGameSetting.Title;
+            numberOption.Value = float.Parse(localValue.Value);
+            numberOption.oldValue = numberOption.oldValue;
+            numberOption.Increment = floatGameSetting.Increment;
+            numberOption.ValidRange = floatGameSetting.ValidRange;
+            numberOption.FormatString = floatGameSetting.FormatString;
+            numberOption.ZeroIsInfinity = floatGameSetting.ZeroIsInfinity;
+            numberOption.SuffixType = floatGameSetting.SuffixType;
+            numberOption.floatOptionName = FloatOptionNames.Invalid;
+            FixOption(numberOption);
+            return numberOption;
+        }
+        [HarmonyPatch("Initialize")]
+        [HarmonyPrefix]
+        public static bool InitializePrefix(NumberOption __instance)
+        {
+            if (__instance.name == "ModdedOption")
+            {
+                __instance.AdjustButtonsActiveState();
+                __instance.TitleText.text = DestroyableSingleton<TranslationController>.Instance.GetString(__instance.Title);
+                NumberOption numberOption = __instance.data.SafeCast<NumberOption>();
+                if (numberOption != null)
+                {
+                    __instance.Value = numberOption.Value;
+                }
+                return false;
+            }
+            return true;
+        }
+        [HarmonyPatch("UpdateValue")]
+        [HarmonyPrefix]
+        public static bool UpdateValuePrefix(NumberOption __instance)
+        {
+            return __instance.name != "ModdedOption";
+        }
+    }
+}
+using FungleAPI.Utilities;
+using System;
+using System.Reflection;
+using System.Text;
+using UnityEngine;
+using FungleAPI.Utilities.Prefabs;
+using HarmonyLib;
+using FungleAPI.PluginLoading;
+
+namespace FungleAPI.Configuration.Attributes
+{
+    [HarmonyPatch(typeof(ToggleOption))]
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class ModdedToggleOption : ModdedOption
+    {
+        public ModdedToggleOption(string configName)
+            : base(configName) 
+        {
+            Data = ScriptableObject.CreateInstance<CheckboxGameSetting>().DontUnload();
+            CheckboxGameSetting checkboxGameSetting = (CheckboxGameSetting)Data;
+            checkboxGameSetting.Title = ConfigName.StringName;
+            checkboxGameSetting.Type = OptionTypes.Checkbox;
+        }
+        public override void Initialize(PropertyInfo property)
+        {
+            base.Initialize(property);
+            if (property.PropertyType == typeof(bool))
+            {
+                ModPlugin plugin = ModPluginManager.GetModPlugin(property.DeclaringType.Assembly);
+                bool value = (bool)property.GetValue(null);
+                localValue = plugin.BasePlugin.Config.Bind(plugin.ModName + " - " + property.DeclaringType.FullName, ConfigName.Default, value.ToString());
+                onlineValue = value.ToString();
+                FullConfigName = plugin.ModName + property.DeclaringType.FullName + property.Name + value.GetType().FullName;
+            }
+        }
+        public override object GetReturnedValue()
+        {
+            Type type = Property.PropertyType;
+            bool value = bool.Parse(GetValue());
+            if (type == typeof(bool))
+            {
+                return value;
+            }
+            else if (type == typeof(int) || type == typeof(float))
+            {
+                return value ? 1 : 0;
+            }
+            return GetValue();
+        }
+        public override OptionBehaviour CreateOption(Transform transform)
+        {
+            ToggleOption toggleOption = UnityEngine.Object.Instantiate(PrefabUtils.Prefab<ToggleOption>(), Vector3.zero, Quaternion.identity, transform);
+            toggleOption.SetUpFromData(Data, 20);
+            toggleOption.Title = Data.Title;
+            toggleOption.TitleText.text = Data.Title.GetString();
+            toggleOption.oldValue = bool.Parse(localValue.Value);
+            toggleOption.CheckMark.enabled = toggleOption.oldValue;
+            toggleOption.OnValueChanged = new Action<OptionBehaviour>(delegate
+            {
+                SetValue(toggleOption.CheckMark.enabled);
+            });
+            FixOption(toggleOption);
+            return toggleOption;
+        }
+        [HarmonyPatch("Initialize")]
+        [HarmonyPrefix]
+        public static bool InitializePrefix(ToggleOption __instance)
+        {
+            if (__instance.name == "ModdedOption")
+            {
+                __instance.TitleText.text = DestroyableSingleton<TranslationController>.Instance.GetString(__instance.Title);
+                return false;
+            }
+            return true;
+        }
+        [HarmonyPatch("UpdateValue")]
+        [HarmonyPrefix]
+        public static bool UpdateValuePrefix(ToggleOption __instance)
+        {
+            return __instance.name != "ModdedOption";
+        }
+    }
+}
+// Use example
+[ModdedNumberOption("Option1", 0, 30)]
+public static float Option1=> 10;
+[ModdedNumberOption("Option2", 0, 30)]
+public static int Option2=> 10;
+[ModdedToggleOption("Option3")]
+public static bool Option3 => true;
+// Properties values are changed with HarmonyLib on runtime
+// You can use this on ModdedTeams and ICustomRoles
+# More
+// FungleAPI has a automatic register system where the API register everything that you create
+// You can avoid this system using the Attribut [FungleIgnore]
+// Every role that you create need to have the RoleBehaviour and ICustomRole to register on this system (warning)
+// Decompile the API to understand better how to use
